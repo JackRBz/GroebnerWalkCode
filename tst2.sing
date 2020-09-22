@@ -1,0 +1,155 @@
+LIB "GroebnerWalk.lib";
+option(noredefine);
+option(redSB);
+
+// ring r = 32003,x(0..6),dp;
+// ideal I =
+//   1958*x(0)*x(3)^2+7617*x(0)*x(3)*x(4)+6661*x(0)*x(5)^2-12321*x(1)*x(3)*x(5)+13677*x(2)^3-7907*x(2)*x(4)^2-9712*x(2)*x(5)^2+7495*x(3)*x(4)*x(5)-3138*x(4)^2*x(5),
+//   4866*x(0)*x(2)*x(3)+3262*x(1)^3+4606*x(2)*x(5)^2-13948*x(3)*x(4)*x(5)+706*x(4)*x(5)^2,
+//   -15061*x(1)^2*x(5)-9182*x(1)*x(2)^2+10936*x(1)*x(4)*x(5);
+ring r = 32003,(x,y,z), dp;
+ideal I = zy2+yx2+yx+3,
+  z3x+y3+zyx-yx2-yx-3,
+  z2yx3-y5+z2yx2+y3x2+y2x3+y3x+y2x2+3z2x+3y2+3yx,
+  zyx5+y6-y4x2-y3x3+2zyx4-y4x-y3x2+zyx3-3z2yx+3zx3-3y3-3y2x+3zx2,
+  yx7-y7+y5x2+y4x3+3yx6+y5x+y4x2+3yx5-6zyx3+yx4+3x5+3y4+3y3x-6zyx2+6x4+3x3-9zx;
+ideal G = groebner(I);
+// intmat oStart[7][7] =
+//   1,1,1,1,1,1,1,
+//   0,0,0,0,0,0,-1,
+//   0,0,0,0,0,-1,0,
+//   0,0,0,0,-1,0,0,
+//   0,0,0,-1,0,0,0,
+//   0,0,-1,0,0,0,0,
+//   0,-1,0,0,0,0,0;
+// intmat oTarget[7][7] =
+//   1,0,0,0,0,0,0,
+//   0,1,0,0,0,0,0,
+//   0,0,1,0,0,0,0,
+//   0,0,0,1,0,0,0,
+//   0,0,0,0,1,0,0,
+//   0,0,0,0,0,1,0,
+//   0,0,0,0,0,0,1;
+intmat oStart[3][3] =
+  1,1,1,
+  0,0,-1,
+  0,-1,0;
+intmat oTarget[3][3] =
+  1,0,0,
+  0,1,0,
+  0,0,1;
+// intvec w = nextDualWeightGeneric(G,intvec(-1),oStart,oTarget);
+
+// // w is wrong, the following two leading ideals do not coincide
+// w;
+// lead(G);
+// lead(initialGeneric(G,w));
+
+
+// // check which w is correct
+// intvec w0 = intvec(-1,0,3,-2,0,0,0);
+// intvec w1 = intvec(-1,0,3,-1,-1,0,0);
+// intvec w2 = intvec(0,-1,3,-1,0,-1,0);
+// intvec w3 = intvec(-1,0,3,0,0,-2,0);
+// intvec w4 = intvec(0,-1,2,0,0,-1,0);
+// intvec w5 = intvec(-1,3,-1,-1,0,0,0);
+
+// // w0
+// w0;
+// lead(G);
+// ring s0 = 32003,x(0..6),(a(w0),dp);
+// ideal G = imap(r,G);
+// lead(initialGeneric(G,w0));
+// "=======================";
+// w1;
+// lead(G);
+// ring s1 = 32003,x(0..6),(a(w1),dp);
+// ideal G = imap(r,G);
+// lead(initialGeneric(G,w1));
+// "=======================";
+// w2;
+// lead(G);
+// ring s2 = 32003,x(0..6),(a(w2),dp);
+// ideal G = imap(r,G);
+// lead(initialGeneric(G,w2));
+// "=======================";
+// w3;
+// lead(G);
+// ring s3 = 32003,x(0..6),(a(w3),dp);
+// ideal G = imap(r,G);
+// lead(initialGeneric(G,w3));
+// "=======================";
+// w4;
+// lead(G);
+// ring s4 = 32003,x(0..6),(a(w4),dp);
+// ideal G = imap(r,G);
+// lead(initialGeneric(G,w4));
+// "=======================";
+// w5;
+// lead(G);
+// ring s5 = 32003,x(0..6),(a(w5),dp);
+// ideal G = imap(r,G);
+// lead(initialGeneric(G,w5));
+
+
+// for (int i=1; i<size(L); i++)
+// {
+//   for (int j=i+1; j<=size(L); j++)
+//   {
+//     i,j,facetPreorder(L[i],L[j],oStart,oTarget);
+//   }
+// }
+
+
+// def s = genericGroebnerWalk(G,oStart,oTarget);
+
+ring rr = 32003,(x,y,z),(a(6,1,2),lp);
+intvec currentDualWeight = -1,-1,3;
+ideal G =
+  xy3z+xy4-y2z4-y3z2-3z3+y3z+y4-3yz,
+  xz3+xyz+y2z+y3,
+  x2y+xy+y2z+3,
+  y2z6-y3z5-xy6+y4z4-xy5+2y3z4-y4z3+3z5+y5z2-y3z3-3yz4+y4z2+3y2z3+y5z+6yz3-y4z-3y2z2-y5+3y3z+3y2z;
+"in current ordering:";
+G;
+setring r;
+ideal G = imap(rr,G);
+"in degree ordering:";
+G;
+ring ss = 32003,(x,y,z),lp;
+ideal G = imap(rr,G);
+"in lex ordering:";
+G;
+
+list FF = // = facets(maximalGroebnerCone(G));
+  intvec(1, 1,-3),
+  intvec(-1,-3, 6),
+  intvec(-1,-4, 6), // facet to cross in straight line method
+  intvec(0, 2, 1);
+
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),FF[1]); // t=1/2
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),FF[2]); // t=2/3
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),FF[3]); // t=1/2
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),FF[4]); // t=1
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),currentDualWeight); // t=1/2
+
+setring rr;
+nextDualWeightGeneric(G,currentDualWeight,oStart,oTarget);
+
+facetPreorder(FF[1],currentDualWeight,oStart,oTarget); // = 0
+facetPreorder(FF[2],currentDualWeight,oStart,oTarget); // = 0
+facetPreorder(FF[3],currentDualWeight,oStart,oTarget); // = 1
+facetPreorder(FF[4],currentDualWeight,oStart,oTarget); // = 0
+
+
+// setring r;
+// list F =
+//   intvec(2,-1,-1),
+//   intvec(-1,-2,4), // facet to cross in straight line method
+//   intvec(0,1,-1);
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),F[1]); // facet parallel to line
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),F[2]); // t=1/2
+// nextLineWeightGeneric(intvec(1,1,1),intvec(1,0,0),F[3]); // facet parallel to line
+// nextDualWeightGeneric(G,intvec(-1),oStart,oTarget);
+
+// facetPreorder(intvec(-1,-2,4),intvec(0,-1,4),oStart,oTarget); // = 0

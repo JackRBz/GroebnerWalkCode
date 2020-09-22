@@ -1,0 +1,37 @@
+LIB "GroebnerWalk.lib";
+option(noredefine);
+option(redSB);
+
+int n = 3; // number of variables
+int k = 2; // number of generators
+int d = 6; // degree of generators
+
+ring r = 32003,x(1..n),dp;
+ideal I = sparseid(k,0,d);
+"I:";
+I;
+ideal G = groebner(I);
+
+intmat oStart[n][n];
+intmat oTarget[n][n];
+for (int i=1; i<=n; i++)
+{
+  oStart[1,i] = 1;
+  oTarget[i,i] = 1;
+}
+for (int i=2; i<=n; i++)
+{
+  oStart[i,n-i+2] = -1;
+}
+"oStart:";
+oStart;
+"oTarget:";
+oTarget;
+
+def s = straightLineGroebnerWalk(G,oStart,oTarget);
+
+"============ Result =============";
+setring s;
+string(lead(G));
+string(lead(groebner(imap(r,I))));
+$

@@ -1,0 +1,41 @@
+LIB "GroebnerWalk.lib";
+option(noredefine);
+option(redSB);
+
+// ring r = 32003,(x,y,z), dp;
+// ideal I = zy2+yx2+yx+3,
+//   z3x+y3+zyx-yx2-yx-3,
+//   z2yx3-y5+z2yx2+y3x2+y2x3+y3x+y2x2+3z2x+3y2+3yx,
+//   zyx5+y6-y4x2-y3x3+2zyx4-y4x-y3x2+zyx3-3z2yx+3zx3-3y3-3y2x+3zx2,
+//   yx7-y7+y5x2+y4x3+3yx6+y5x+y4x2+3yx5-6zyx3+yx4+3x5+3y4+3y3x-6zyx2+6x4+3x3-9zx;
+// ideal G = groebner(I);
+// intmat oStart[3][3] =
+//   1,1,1,
+//   0,0,-1,
+//   0,-1,0;
+// intmat oTarget[3][3] =
+//   1,0,0,
+//   0,1,0,
+//   0,0,1;
+
+
+ring r = 32003,x(0..6),dp;
+ideal I = 15277*x(0)*x(1)-10802*x(0)*x(2)-2500*x(1)^2-13435*x(1)*x(2)+6438*x(1)*x(3)-7932*x(1)*x(4)+1985*x(1)*x(6)+5135*x(3)*x(5)+2142*x(4)*x(5),
+  6868*x(0)*x(1)-11548*x(0)*x(4)-11539*x(1)*x(4)-4087*x(1)*x(6)+1012*x(2)*x(3)+1344*x(2)*x(5)-2130*x(3)^2+14776*x(3)*x(6),
+  -14803*x(0)*x(3)-12747*x(1)*x(4)+11839*x(2)^2+5964*x(5)^2;
+ideal G = groebner(I);
+intmat oStart[7][7] =
+  1,1,1,1,1,1,1,
+  0,0,0,0,0,0,-1,
+  0,0,0,0,0,-1,0,
+  0,0,0,0,-1,0,0,
+  0,0,0,-1,0,0,0,
+  0,0,-1,0,0,0,0,
+  0,-1,0,0,0,0,0;
+intmat oTarget[7][7];
+for (int i=1; i<=nvars(basering); i++)
+{
+  oTarget[i,i]=1;
+}
+def s = straightLineGroebnerWalk(G,oStart,oTarget);
+// nextWeightStraightLine(G,intvec(1,1,1,1,1,1,1),intvec(1,0,0,0,0,0,0));

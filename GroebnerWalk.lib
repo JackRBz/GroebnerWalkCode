@@ -1,0 +1,1040 @@
+///////////////////////////////////////////////////////////////////////////////
+version="version gfan.lib 4.1.2.0 Feb_2019 "; // $Id: 38e002800d839006f5d9605421f67b5e8397db61 $
+category="Commutative Algebra";
+info="
+LIBRARY:  groebnerWalk.lib   Groebner Walk algorithms
+AUTHORS:  Yue Ren,           email: yue.ren@swansea.ac.uk
+          Jack Rhys-Burgess  email: 906545@Swansea.ac.uk
+
+PROCEDURES:
+       fullSpace(n);       cone, the ambient space of dimension n
+       origin(n);          cone, the origin in an ambient space of dimension n
+";
+///////////////////////////////////////////////////////////////////////////////
+
+
+static proc mod_init()
+{
+  intvec save=option(get);
+  option(noredefine);
+  option(redSB);
+  LIB "gfan.lib"; // for cones
+  LIB "ring.lib"; // for changing orderings
+}
+
+
+proc identityIntmat(int n)
+{
+  intmat M[n][n];
+  for (int i=1; i<=n; i++)
+  {
+    M[i,i] = 1;
+  }
+  return (M);
+}
+
+
+// returns 1 if I is a GB w.r.t. ordering of rTarget
+// returns 0 otherwise
+proc isGroebnerBasisFor(ideal I, intmat oTarget)
+{
+  ring rOrigin = basering;
+  matrix M = matrix(lead(I)); // cast leading ideal to matrix
+                              // for the sake of comparison
+
+  // def rTarget = changeord(list(list("M",oTarget)));
+  // setring rTarget;
+  string varString = varstr(basering);
+  string charString = charstr(basering);
+  execute("ring rTarget = ("+charString+"),("+varString+"),M(oTarget);");
+  ideal I = imap(rOrigin,I);
+  matrix Mdash = matrix(lead(I));
+
+  setring rOrigin;
+  matrix Mdash = imap(rTarget,Mdash);
+  if (M==Mdash)
+  {
+    return (1);
+  }
+  return (0);
+}
+
+
+// input:
+//   - cone CI with outer facet normals u1, ..., uk
+//   - intmat oTarget encoding the target ordering
+// output:
+//   - outer facet normal ui that points most in direction oTarget,
+//       i.e. vi := ui/||ui|| * transpose(oTarget) lex. maximal
+proc facetTowards(cone CI, intmat oTarget)
+{
+  ring rOrigin = basering;
+  ring rTemp = 0,xTemp,dp;
+
+  bigintmat U = -facets(CI); // u1, ...., uk
+  bigintmat V = U*transpose(oTarget); // ui * transpose(oTarget)
+
+  // collecting rows of FO that are negative
+  list lU;
+  list lV;
+  for (int i=1; i<=nrows(V); i++)
+  {
+    intvec ui = int(U[i,1..ncols(U)]);
+    intvec vi = int(V[i,1..ncols(V)]);
+    if (vi>0)
+    {
+      lU[size(lU)+1] = ui;
+      lV[size(lV)+1] = vi;
+    }
+  }
+
+  // squaring all (positive) vi
+  for (int i=1; i<=size(lV); i++)
+  {
+    intvec vi = lV[i];
+    for (int j=1; j<=size(vi); j++)
+    {
+      vi[j] = vi[j]^2;
+    }
+    lV[i] = vi;
+  }
+
+  // dividing all (positive) vi by the norm of ui squared
+  for (int i=1; i<=size(lV); i++)
+  {
+    intvec vi = lV[i];
+    intvec ui = lU[i];
+    number uNormSquared = 0;
+    for (int j=1; j<=size(ui); j++)
+    {
+      uNormSquared = uNormSquared + ui[j]^2;
+    }
+
+    matrix Vi[1][size(vi)];
+    for (int j=1; j<=size(vi); j++)
+    {
+      Vi[1,j] = vi[j] / uNormSquared;
+    }
+    lV[i] = Vi;
+  }
+
+  // returning ui where i is the maximal row of FO
+  intvec uMax = lU[1];
+  matrix vMax = lV[1];
+  for (int i=2; i<=size(lU); i++)
+  {
+    if (vMax < lV[i])
+    {
+      uMax = lU[i];
+      vMax = lV[i];
+    }
+  }
+
+  setring rOrigin;
+  return (uMax);
+}
+
+
+proc intvecToBigintmat(intvec u)
+{
+  bigintmat U[1][size(u)] = u[1..size(u)];
+  return (U);
+}
+
+
+proc bigintmatToIntvec(bigintmat V)
+{
+  intvec v = int(V[1,1..ncols(V)]);
+  return (v);
+}
+
+proc sumOfRays(cone CI)
+{
+  bigintmat raysCI = rays(CI);
+  intvec sumRaysCI; sumRaysCI[ncols(raysCI)] = 0;
+  for (int i=1; i<=ncols(raysCI); i++)
+  {
+    for (int j=1; j<=nrows(raysCI); j++)
+    {
+      sumRaysCI[i] = sumRaysCI[i] + int(raysCI[j,i]);
+    }
+  }
+  return (sumRaysCI);
+}
+
+
+proc L1Norm(def v)
+{
+  if (typeof(v)=="intvec")
+  {
+    int normV = 0;
+    for (int i=1; i<=size(v); i++)
+    {
+      normV = normV + absValue(v[i]);
+    }
+    return (normV);
+  }
+  if (typeof(v)=="matrix")
+  {
+    number normV = 0;
+    for (int i=1; i<=ncols(v); i++)
+    {
+      normV = normV + leadcoef(absValue(v[1,i]));
+    }
+    return (normV);
+  }
+}
+
+
+proc pointOnSimplex(intvec v)
+{
+  matrix V[1][size(v)] = v[1..size(v)];
+  matrix VSimplex = V/L1Norm(v);
+  return (VSimplex);
+}
+
+
+proc L1DistanceOnSimplex(intvec v, intvec o)
+{
+  matrix O[1][size(o)] = o[1..size(o)];
+
+  matrix VSimplex = pointOnSimplex(v);
+  matrix OSimplex = pointOnSimplex(o);
+
+  matrix VOSimplex = VSimplex - OSimplex;
+  return (L1Norm(VOSimplex));
+}
+
+
+proc groebnerWalk(ideal I, intmat oTarget)
+{
+  intvec originalOptions = option(get);
+  option(redSB);
+  option(noredefine);
+
+  intvec vTarget = intvec(oTarget[1,1..ncols(oTarget)]);
+
+  def rCurrent = basering;
+  ring rBookkeeping = real,dummyVariable,dp; // polynomial ring with float coefficients for bookkeeping
+  list stepSizes;
+  list facetPoints;
+
+  setring rCurrent;
+  ideal G = groebner(I);
+
+  int kStep = 1;
+  int tTotal = timer; // tracks total time
+  int tDirect = 0;    // tracks time spend in directing walk
+  int tDirect0 = 0;    // tracks time spend in facet
+  int tDirect1 = 0;    // tracks time spend in facetTowards
+  int tDirect2 = 0;    // tracks time spend in relativeInteriorPoint
+  int tBook = 0;      // tracks time spend in bookkeeping
+  int tFlip = 0;      // tracks time spend in flip
+
+  string varString = varstr(basering);
+  string charString = charstr(basering);
+
+  while (isGroebnerBasisFor(G,oTarget) == 0)
+  {
+
+    "tTotal "+string(timer-tTotal)+" tDirect "+string(tDirect)+" tDirect0 "+string(tDirect0)+" tDirect1 "+string(tDirect1)+" tDirect2 "+string(tDirect2)+" tBook "+string(tBook)+" tFlip "+string(tFlip);
+
+    // 1. Compute outer normal vector u towards target
+    //      and interior facet point v
+    int tDirectIter = timer;
+    // cone CI = maximalGroebnerConeTowards(G,vTarget);
+    int tDirect0Iter = timer;
+    cone CI = maximalGroebnerCone(G);
+    tDirect0 = tDirect0 + (timer-tDirect0Iter);
+    int tDirect1Iter = timer;
+    bigintmat CIFacets = facets(CI);
+    tDirect1 = tDirect1 + (timer-tDirect1Iter);
+    int tDirect2Iter = timer;
+    intvec u = facetTowards(CI,oTarget);
+    cone CIFacet = coneViaInequalities(CIFacets,intvecToBigintmat(u));
+    intvec v = bigintmatToIntvec(relativeInteriorPoint(CIFacet));
+    tDirect2 = tDirect2 + (timer-tDirect2Iter);
+    tDirect = tDirect + (timer-tDirectIter);
+
+    int tBookIter = timer;
+    setring rBookkeeping;
+    number stepSize = L1DistanceOnSimplex(v,vTarget);
+    "Step "+string(kStep)+" Distance "+string(stepSize);
+    // "current weight "+string(pointOnSimplex(v));
+    stepSizes[kStep] = stepSize;
+    facetPoints[kStep] = v;
+    kStep = kStep+1;
+    setring rCurrent;
+    tBook = tBook + (timer-tBookIter);
+
+
+    int tFlipIter = timer;
+    // 2. Construct initial ideal
+    ideal H = initial(G,v);
+
+    // 3. Compute Groebner basis of initial ideal w.r.t. next ordering
+    execute("ring rNext = ("+charString+"),("+varString+"),(a(v),a(u),lp);");
+            // changeord(list(list("a",v),list("a",u),list("lp",nvars(basering))));
+    ideal Hprime = groebner(imap(rCurrent,H));
+
+    // 4. Lift Groebner basis of initial ideal to Groebner basis of original ideal
+    setring rCurrent;
+    ideal Hprime = imap(rNext,Hprime);
+    ideal Gprime;
+    for (int i=1; i<=size(Hprime); i++)
+    {
+      Gprime[i] = Hprime[i] - reduce(Hprime[i],G);
+    }
+    setring rNext;
+    ideal Gprime = imap(rCurrent,Gprime);
+
+    tFlip = tFlip + (timer-tFlipIter);
+
+    // 5. Set next to be current
+    def rCurrent = rNext;
+    kill rNext;
+    ideal G = Gprime;
+    attrib(G,"isSB",1);
+    kill Gprime;
+  }
+
+  option(set,originalOptions);
+
+  export(G);
+  export(rCurrent);
+  return (rCurrent);
+}
+
+
+
+
+
+
+
+
+
+
+proc facetPreorder(intvec u, intvec v, intmat oStart, intmat oTarget)
+{
+  intmat TW = oTarget*(u*transpose(v) - v*transpose(u))*transpose(oStart);
+  print(TW);
+  // "==============================";
+  for(int i = 1; i<= nrows(TW); i++)
+  {
+    intvec TWi = TW[i, 1..ncols(TW)];
+    if (TWi!=0)
+    {
+      if(TWi < 0)
+      {
+        return (1);
+      }
+      else
+      {
+        return (0);
+      }
+    }
+  }
+  return (0);
+}
+example
+{
+  echo = 2;
+  intmat oStart[2][2] = 1, 1, 0, -1;
+  intmat oTarget[2][2] = 1, 0, 0, 1;
+  intvec u = 0, 0;
+  intvec v = 1, 1;
+  intvec w = -1, 1;
+  facetPreorder(u, v, oStart, oTarget);
+  facetPreorder(u, w, oStart, oTarget);
+  facetPreorder(v, w, oStart, oTarget);
+  facetPreorder(w, v, oStart, oTarget);
+}
+
+// In: u,v nonzero intvecs
+// Out:
+//   1 if u parallel to v
+//   0 otherwise
+proc isParallel(intvec u, intvec v)
+{
+  for (int i=1; i<=size(u); i++)
+  {
+    if (u[i]==0)
+    {
+      if (v[i]!=0)
+      {
+        return (0);
+      }
+    }
+    else
+    {
+      if (u[i]*v==v[i]*u)
+      {
+        return (1);
+      }
+      else
+      {
+        return (0);
+      }
+    }
+  }
+  ERROR("isParallel: input zero vector");
+  return (-1);
+}
+
+proc initialGeneric(ideal G, intvec wDual)
+{
+  ideal inG;
+  for (int i=ncols(G); i>0; i--)
+  {
+    poly g=G[i];
+    poly h=g[1];
+    intvec u = leadexp(g);
+    for (int j=2; j<=size(g); j++)
+    {
+      if (isParallel(u-leadexp(g[j]),wDual))
+      {
+        h = h+g[j];
+      }
+    }
+    inG[i] = h;
+  }
+  return (inG);
+}
+
+
+// In:
+//  - G = GB w.r.t. <_2,w
+//  - oStart = Matrix for <_1
+//  - oTarget = Matrix for <_2
+// Out:
+//  -
+proc nextDualWeightGeneric(ideal G, intvec currentDualWeight, intmat oStart, intmat oTarget)
+{
+  def rCurrent = basering;
+
+  /***
+   * Step 1: Construct \delta(G) \cap C_{<_1,<_2}
+   *           = \cup_{f\in G} {u-uPrime | uPrime <_1 u <_2 uPrime,
+   *                                       u = leadexp(f),
+   *                                       uPrime \in tailexps(f)}
+   **/
+  // save leading monomials and create rings with orderings <_1, <_2
+  ideal MU = lead(G);
+  string varString = varstr(basering);
+  string charString = charstr(basering);
+  execute("ring rStart = ("+charString+"),("+varString+"),M(oStart);");
+  execute("ring rTarget = ("+charString+"),("+varString+"),M(oTarget);");
+
+  // find all tail exponents uPrime such that u <_2 uPrime
+  setring rTarget;
+  ideal G = imap(rCurrent,G);
+  ideal MU = imap(rCurrent,MU);
+  ideal MUPrime;
+  for (int i=1; i<=ncols(G); i++)
+  {
+    poly g = G[i];
+    poly h;
+    for (int j=1; MU[i]<g[j]; j++) // here: < = <_2
+    {
+      h = h+g[j];
+    }
+    MUPrime[i] = h;
+  }
+  MUPrime;
+
+  // keep all tail exponents uPrime such that uPrime <_1 u
+  setring rStart;
+  ideal MU = imap(rTarget,MU);
+  ideal MUPrime = imap(rTarget,MUPrime);
+  int k = 0;
+  for (int i=1; i<=ncols(MUPrime); i++)
+  {
+    poly g = MUPrime[i];
+    poly h;
+    for (int j=size(g); j>0; j--) // test j>0 in case size(g)=0
+    {
+      if (g[j]<MU[i])             // here: < = <_1
+      {
+        h = h+g[j];
+        k++;
+      }
+    }
+    MUPrime[i] = h;
+  }
+  MUPrime;
+
+  // construct delta(G)\cap C_{<_1,<_2}
+  list deltaGcapC;
+  deltaGcapC[k] = 0;
+  k = 0;
+  for (int i=1; i<=ncols(MUPrime); i++)
+  {
+    poly h = MUPrime[i];
+    for (int j=1; j<=size(h); j++)
+    {
+      k++;
+      deltaGcapC[k] = leadexp(MU[i])-leadexp(h[j]); // = u - uPrime
+    }
+  }
+  setring rCurrent;
+  deltaGcapC;
+
+  /***
+   * Step 2: Filter out all elements smaller than currentDualWeight
+   *           in the facetPreorder
+   **/
+  if (size(currentDualWeight)>1)
+  {
+    intvec entriesToKeep;
+    int l=0;
+    for (int i=1; i<=k; i++)
+    {
+      "============================";
+      currentDualWeight;
+      deltaGcapC[i];
+      facetPreorder(currentDualWeight,deltaGcapC[i],oStart,oTarget);
+      if (facetPreorder(currentDualWeight,deltaGcapC[i],oStart,oTarget)==1)
+      {
+        l++;
+        entriesToKeep[l] = i;
+      }
+    }
+    if (l==0)
+    {
+      return (1);
+    }
+    deltaGcapC = deltaGcapC[entriesToKeep];
+  }
+  deltaGcapC;
+
+  /***
+   * Step 3: Return minimal element
+   **/
+  intvec nextDualWeight = deltaGcapC[1];
+  for (int i=2; i<=size(deltaGcapC); i++)
+  {
+    // nextDualWeight;
+    // deltaGcapC[i];
+    // facetPreorder(nextDualWeight,deltaGcapC[i],oStart,oTarget);
+    if (facetPreorder(nextDualWeight,deltaGcapC[i],oStart,oTarget)==1)
+    {
+      nextDualWeight = deltaGcapC[i];
+    }
+  }
+  // nextDualWeight;
+  return (nextDualWeight);
+}
+example
+{
+  "echo=2";
+  ring r = 32003,x(0..6),dp;
+  ideal I =
+    1958*x(0)*x(3)^2+7617*x(0)*x(3)*x(4)+6661*x(0)*x(5)^2-12321*x(1)*x(3)*x(5)+13677*x(2)^3-7907*x(2)*x(4)^2-9712*x(2)*x(5)^2+7495*x(3)*x(4)*x(5)-3138*x(4)^2*x(5),
+    4866*x(0)*x(2)*x(3)+3262*x(1)^3+4606*x(2)*x(5)^2-13948*x(3)*x(4)*x(5)+706*x(4)*x(5)^2,
+    -15061*x(1)^2*x(5)-9182*x(1)*x(2)^2+10936*x(1)*x(4)*x(5);
+  ideal G = groebner(I);
+  intmat oStart[7][7] =
+    1,1,1,1,1,1,1,
+    0,0,0,0,0,0,1,
+    0,0,0,0,0,1,0,
+    0,0,0,0,1,0,0,
+    0,0,0,1,0,0,0,
+    0,0,1,0,0,0,0,
+    0,1,0,0,0,0,0;
+  intmat oTarget[7][7] =
+    1,0,0,0,0,0,0,
+    0,1,0,0,0,0,0,
+    0,0,1,0,0,0,0,
+    0,0,0,1,0,0,0,
+    0,0,0,0,1,0,0,
+    0,0,0,0,0,1,0,
+    0,0,0,0,0,0,1;
+  list cV = candidatesForV(G,oStart,oTarget);
+  cV;
+}
+
+
+proc lcm(number a, number b)
+{
+  return (a*b/gcd(a,b));
+}
+
+
+// In:
+//   - matrix with a single column representing a rational vector
+// Out:
+//   - intvec that is a positive multiple of the vector
+proc makePrimitive(matrix w)
+{
+  number lcmOfDenominators = denominator(number(w[1,1])); // denominators are always positive
+  for (int i=2; i<=nrows(w); i++)
+  {
+    lcmOfDenominators = lcm(lcmOfDenominators,denominator(number(w[i,1])));
+  }
+
+  intvec wPrimitive;
+  for (int i=1; i<=nrows(w); i++)
+  {
+    wPrimitive[i] = int(w[i,1]*lcmOfDenominators);
+  }
+
+  return (wPrimitive);
+}
+
+
+// Out:
+//   w on the intersection of the line from currentWeight to targetWeight
+//     and the hyperplane orthogonal to currentDualWeight
+proc nextLineWeightGeneric(intvec currentWeight, intvec targetWeight, intvec currentDualWeight)
+{
+  def origin = basering;
+  ring rNextWeightGeneric = 0,t,dp;
+  matrix pOnLine = currentWeight-t*(currentWeight-targetWeight);
+  poly pOnLineOnPlaneCondition = matrix(transpose(pOnLine)*currentDualWeight)[1,1];
+  if (size(pOnLineOnPlaneCondition)!=2)
+  {
+    ERROR("nextLineWeightGeneric: problem with point on line on plane condition");
+  }
+
+  number tSolution = -number(pOnLineOnPlaneCondition[2])/leadcoef(pOnLineOnPlaneCondition);
+  // if (tSolution<0 || tSolution>1)
+  // {
+  //   ERROR("nextWeightGeneric: problem with point on line on plane solution");
+  // }
+  tSolution;
+
+  matrix pOnLineOnPlane = subst(pOnLine,t,tSolution);
+  intvec nextWeight = makePrimitive(pOnLineOnPlane);
+  setring origin;
+  return (nextWeight);
+}
+
+
+// Out:
+//  weight vector w such that >_w gives the same leading terms on G
+//  as oTarget on H
+proc computeWeightVectorGeneric(ideal H, ideal G, intmat oTarget)
+{
+  if (size(H)!=size(G))
+  {
+    ERROR("findWeightVectorGeneric: input ideals not the same size");
+  }
+
+  def origin = basering;
+  string varString = varstr(basering);
+  string charString = charstr(basering);
+  execute("ring rTarget = ("+charString+"),("+varString+"),M(oTarget);");
+  ideal H = imap(origin,H);
+  ideal G = imap(origin,G);
+  ideal LH = lead(H);
+
+  int n = nvars(basering);
+  int k = 0;
+  for (int i=1; i<=size(G); i++)
+  {
+    k = k+size(G[i]);
+  }
+
+  intmat ineqs[k+n][n];
+  for (int i=1; i<=n; i++)
+  {
+    ineqs[i,i]=1;
+  }
+  k=n+1;
+  for (int i=1; i<=size(G); i++)
+  {
+    poly gi = G[i];
+    poly hi = LH[i];
+    for (int j=1; j<=size(gi); j++)
+    {
+      ineqs[k,1..n] = leadexp(hi)-leadexp(gi[j]);
+      k++;
+    }
+  }
+  cone C = coneViaInequalities(ineqs);
+
+  bigintmat wBig = relativeInteriorPoint(C);
+  intvec w = int(wBig[1,1..n]);
+  setring origin;
+  return (w);
+}
+
+
+
+proc genericGroebnerWalk(ideal I, intmat oStart, intmat oTarget)
+{
+  intvec originalOptions = option(get);
+  option(redSB);
+  option(noredefine);
+
+  def rCurrent = basering;
+  ideal G = groebner(I);
+
+  int kStep = 1;
+  int tTotal = timer; // tracks total time
+  int tDirect0 = 0;   // tracks time spend in directing walk
+  int tDirect1 = 0;   // tracks time spend in directing walk
+  int tBook = 0;      // tracks time spend in bookkeeping
+  int tFlip = 0;      // tracks time spend in flip
+
+  string varString = varstr(basering);
+  string charString = charstr(basering);
+
+  int n = nvars(basering);
+  intvec currentWeight = oStart[1,1..n];
+  intvec targetWeight = oTarget[1,1..n];
+  intvec currentDualWeight = -1;
+  intvec onesVector;
+  for (int i=1; i<=n; i++)
+  {
+    onesVector[i]=1;
+  }
+
+  while (1)
+  {
+    // 1. Compute the next weight
+    int tDirectIter = timer;
+    // ~;
+    currentDualWeight = nextDualWeightGeneric(G,currentDualWeight,oStart,oTarget);
+    tDirect0 = tDirect0 + (timer-tDirectIter);
+
+    // 2. Return, if target ordering reached
+    if (size(currentDualWeight)==1)
+    { // ~;
+      option(set,originalOptions);
+      export(G);
+      export(rCurrent);
+      return (rCurrent);
+    }
+
+    // int tBookIter = timer;
+    // setring rBookkeeping;
+    // number stepSize = L1DistanceOnSimplex(sumOfRays(CI),vTarget);
+    // "Step "+string(kStep)+" Distance "+string(stepSize);
+    // "current weight "+string(pointOnSimplex(v));
+    // stepSizes[kStep] = stepSize;
+    // facetPoints[kStep] = v;
+    // kStep = kStep+1;
+    // setring rCurrent;
+    // tBook = tBook + (timer-tBookIter);
+
+
+    // 3. Construct initial ideal
+    ideal H = initialGeneric(G,currentDualWeight);
+    int tDirectIter = timer;
+    currentWeight = computeWeightVectorGeneric(H,G,oTarget);
+    tDirect1 = tDirect1 + (timer-tDirectIter);
+
+    int tFlipIter = timer;
+    // 4. Compute Groebner basis of initial ideal w.r.t. next ordering
+    execute("ring rNext = ("+charString+"),("+varString+"),(a(currentWeight),lp);");
+    ideal Hprime = groebner(imap(rCurrent,H));
+
+    // 5. Lift Groebner basis of initial ideal to Groebner basis of original ideal
+    setring rCurrent;
+    ideal Hprime = imap(rNext,Hprime);
+    ideal Gprime;
+    for (int i=1; i<=size(Hprime); i++)
+    {
+      Gprime[i] = Hprime[i] - reduce(Hprime[i],G);
+    }
+    setring rNext;
+    ideal Gprime = imap(rCurrent,Gprime);
+    Gprime = interred(Gprime);
+    tFlip = tFlip + (timer-tFlipIter);
+
+    // 6. Set next to be current
+    def rCurrent = rNext;
+    kill rNext;
+    ideal G = Gprime;
+    attrib(G,"isSB",1);
+    kill Gprime;
+  }
+}
+
+
+proc nextWeightStraightLine(ideal G, intvec currentWeight, intvec targetWeight, int positiveSolutionsOnly)
+{
+  def origin = basering;
+  list leadexps;
+  list tailexps;
+  for (int i=1; i<=size(G); i++)
+  {
+    poly gi = G[i];
+    leadexps[i] = leadexp(gi);
+    list tailexpsi;
+    for (int j=2; j<=size(gi); j++)
+    {
+      tailexpsi[j-1] = leadexp(gi[j]);
+    }
+    tailexps[i] = tailexpsi;
+  }
+
+  ring rNextWeightStraightLine = 0,t,dp;
+  matrix pOnLineCondition = currentWeight-t*(currentWeight-targetWeight);
+  number tPosMin = 1;
+  int iMin = 0;
+  int jMin = 0;
+  for (int i=1; i<=size(leadexps); i++)
+  {
+    intvec u = leadexps[i];
+    list tailexpsi = tailexps[i];
+    for (int j=1; j<=size(tailexpsi); j++)
+    {
+      poly pOnLineOnPlaneCondition = matrix(transpose(pOnLineCondition)*(u-tailexpsi[j]))[1,1];
+      // "u-tailexpsi[j]",u-tailexpsi[j];
+      // "pOnLineOnPlaneCondition:",pOnLineOnPlaneCondition;
+      if (deg(pOnLineOnPlaneCondition)==1)
+      {
+        if (size(pOnLineOnPlaneCondition)==1 && positiveSolutionsOnly==0)
+        {
+          number tSolution = 0;
+          tPosMin = tSolution;
+          iMin = i;
+          jMin = j;
+        }
+        if (size(pOnLineOnPlaneCondition)==2) // if ==2, pOnLineOnPlaneCondition = a*t+b and it has a solution
+        {                                     // if !=2, straight line is parallel to the plane
+          number tSolution = -number(pOnLineOnPlaneCondition[2])/leadcoef(pOnLineOnPlaneCondition);
+          if (tSolution>=0)
+          {
+            if (tSolution<tPosMin)
+            {
+              tPosMin = tSolution;
+              iMin = i;
+              jMin = j;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  matrix pOnLineOnPlane = subst(pOnLineCondition,t,tPosMin);
+  intvec nextWeight = makePrimitive(pOnLineOnPlane);
+  setring origin;
+  return (nextWeight);
+}
+
+
+proc straightLineGroebnerWalk(ideal I, intmat oStart, intmat oTarget)
+{
+  intvec originalOptions = option(get);
+  option(redSB);
+  option(noredefine);
+
+  def rCurrent = basering;
+  ideal G = groebner(I);
+  // lead(G);
+
+  int kStep = 1;
+  int tTotal = timer; // tracks total time
+  int tDirect = 0;   // tracks time spend in directing walk
+  int tBook = 0;      // tracks time spend in bookkeeping
+  int tFlip = 0;      // tracks time spend in flip
+
+  string varString = varstr(basering);
+  string charString = charstr(basering);
+
+  int n = nvars(basering);
+  intvec currentWeight = oStart[1,1..n];
+  intvec targetWeight = oTarget[1,1..n];
+  intvec currentDualWeight = -1;
+  intvec onesVector;
+  for (int i=1; i<=n; i++)
+  {
+    onesVector[i]=1;
+  }
+  int positiveSolutionsOnly=0;
+
+  while (isGroebnerBasisFor(G,oTarget) == 0)
+  {
+    // 1. Compute the next weight
+    int tDirectIter = timer;
+    currentWeight = nextWeightStraightLine(G,currentWeight,targetWeight,positiveSolutionsOnly);
+    positiveSolutionsOnly = 1;
+    currentWeight;
+    tDirect = tDirect + (timer-tDirectIter);
+
+
+    // int tBookIter = timer;
+    // setring rBookkeeping;
+    // number stepSize = L1DistanceOnSimplex(sumOfRays(CI),vTarget);
+    // "Step "+string(kStep)+" Distance "+string(stepSize);
+    // "current weight "+string(pointOnSimplex(v));
+    // stepSizes[kStep] = stepSize;
+    // facetPoints[kStep] = v;
+    // kStep = kStep+1;
+    // setring rCurrent;
+    // tBook = tBook + (timer-tBookIter);
+
+    // 3. Construct initial ideal
+    ideal H = initial(G,currentWeight);
+
+    int tFlipIter = timer;
+    // 4. Compute Groebner basis of initial ideal w.r.t. next ordering
+    execute("ring rNext = ("+charString+"),("+varString+"),(a(currentWeight),lp);");
+    ideal Hprime = groebner(imap(rCurrent,H));
+
+    // 5. Lift Groebner basis of initial ideal to Groebner basis of original ideal
+    setring rCurrent;
+    ideal Hprime = imap(rNext,Hprime);
+    ideal Gprime;
+    for (int i=1; i<=size(Hprime); i++)
+    {
+      Gprime[i] = Hprime[i] - reduce(Hprime[i],G);
+    }
+    setring rNext;
+    ideal Gprime = imap(rCurrent,Gprime);
+    Gprime = interred(Gprime);
+    tFlip = tFlip + (timer-tFlipIter);
+
+    // 6. Set next to be current
+    def rCurrent = rNext;
+    kill rNext;
+    ideal G = Gprime;
+    attrib(G,"isSB",1);
+    // lead(Gprime);
+    kill Gprime;
+
+    "kStep "+string(kStep)+" tTotal "+string(timer-tTotal)+" tDirect "+string(tDirect)+" tBook "+string(tBook)+" tFlip "+string(tFlip);
+    kStep++;
+  }
+  option(set,originalOptions);
+
+  export(G);
+  export(rCurrent);
+  return (rCurrent);
+}
+
+
+proc l1DistanceOnLineOnParabola(intvec w, intvec vStart, intvec vTarget, int oneOverShift)
+{
+  def rOrigin = basering;
+  ring rDistance = 0,t,dp;
+
+  // Step 1: project w onto line thru vStart, vTarget
+  matrix pOnLine = vStart-t*(vStart-vTarget);
+  matrix pToW = pOnLine - w;
+  poly wOnLineCondition = matrix(transpose(pToW)*(vStart-vTarget))[1,1];
+  number tSolution;
+  if (deg(wOnLineCondition)==1)
+  {
+    if (size(wOnLineCondition)==1)
+    {
+      tSolution = 0;
+    }
+    if (size(wOnLineCondition)==2) // if ==2, wOnLineCondition = a*t+b and it has a solution
+    {                              // if !=2, straight line is parallel to the plane
+      tSolution = -number(wOnLineCondition[2])/leadcoef(wOnLineCondition);
+    }
+  }
+  matrix wOnLine = subst(pOnLine,t,tSolution);
+  ~;
+
+  // Step 2: project onto parabola
+  poly pOnWLineOnParabolaCondition = 1;
+  poly pOnVLineOnParabolaCondition = 1;
+  for (int i=1; i<=ncols(wOnLine); i++)
+  {
+    pOnWLineOnParabolaCondition = pOnWLineOnParabolaCondition*(t*wOnLine[i,1]-1/number(oneOverShift));
+    pOnVLineOnParabolaCondition = pOnVLineOnParabolaCondition*(t*vTarget[i]-1/number(oneOverShift));
+  }
+  pOnWLineOnParabolaCondition = pOnWLineOnParabolaCondition-1;
+  pOnVLineOnParabolaCondition = pOnVLineOnParabolaCondition-1;
+
+  def rWSolve = solve(ideal(pOnWLineOnParabolaCondition),4,0,"nodisplay");
+  setring rWSolve;
+  number realWSol = SOL[1];
+
+  setring rDistance;
+  def rVSolve = solve(ideal(pOnVLineOnParabolaCondition),4,0,"nodisplay");
+  setring rVSolve;
+  number realVSol = SOL[1];
+
+  ring rSolve = complex,t,dp;
+  number realWSol = imap(rWSolve,realWSol);
+  number realVSol = imap(rVSolve,realVSol);
+  matrix wOnLine = imap(rDistance,wOnLine);
+  matrix WOnParabola = realWSol*wOnLine;
+  matrix VOnParabola = realVSol*vTarget;
+  // "============================";
+  // print (WOnParabola);
+  // print (VOnParabola);
+  // ~;
+
+  number L1Dist;
+  for (int i=1; i<=nrows(WOnParabola); i++)
+  {
+    number wMinusV = number(WOnParabola[i,1]) - number(VOnParabola[i,1]);
+    if (wMinusV<0)
+    {
+      L1Dist = L1Dist - wMinusV;
+    }
+    else
+    {
+      L1Dist = L1Dist + wMinusV;
+    }
+  }
+
+  string L1DistString = string(L1Dist);
+
+  setring rOrigin;
+  return (L1DistString);
+}
+
+
+proc l1DistanceOnParabola(intvec w, intvec v, int oneOverShift)
+{
+  def rOrigin = basering;
+  ring rDistance = 0,t,dp;
+
+  // Step 2: project onto parabola
+  poly pOnWLineOnParabolaCondition = 1;
+  poly pOnVLineOnParabolaCondition = 1;
+  for (int i=1; i<=size(w); i++)
+  {
+    pOnWLineOnParabolaCondition = pOnWLineOnParabolaCondition*(t*w[i]-1/number(oneOverShift));
+    pOnVLineOnParabolaCondition = pOnVLineOnParabolaCondition*(t*v[i]-1/number(oneOverShift));
+  }
+  pOnWLineOnParabolaCondition = pOnWLineOnParabolaCondition-1;
+  pOnVLineOnParabolaCondition = pOnVLineOnParabolaCondition-1;
+
+  def rWSolve = solve(ideal(pOnWLineOnParabolaCondition),4,0,"nodisplay");
+  setring rWSolve;
+  number realWSol = SOL[1];
+
+  setring rDistance;
+  def rVSolve = solve(ideal(pOnVLineOnParabolaCondition),4,0,"nodisplay");
+  setring rVSolve;
+  number realVSol = SOL[1];
+
+  ring rSolve = complex,t,dp;
+  number realWSol = imap(rWSolve,realWSol);
+  number realVSol = imap(rVSolve,realVSol);
+  matrix WOnParabola = realWSol*w;
+  matrix VOnParabola = realVSol*v;
+  // "============================";
+  // print (WOnParabola);
+  // print (VOnParabola);
+  // ~;
+
+  number L1Dist;
+  for (int i=1; i<=nrows(WOnParabola); i++)
+  {
+    number wMinusV = number(WOnParabola[i,1]) - number(VOnParabola[i,1]);
+    if (wMinusV<0)
+    {
+      L1Dist = L1Dist - wMinusV;
+    }
+    else
+    {
+      L1Dist = L1Dist + wMinusV;
+    }
+  }
+
+  string L1DistString = string(L1Dist);
+
+  setring rOrigin;
+  return (L1DistString);
+}

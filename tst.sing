@@ -1,0 +1,45 @@
+LIB "GroebnerWalk.lib";
+
+// // default example in grwalk.lib
+// ring r = 32003,(z,y,x),dp;
+// ideal I = y3+xyz+y2z+xz3, 3+xy+x2y+y2z;
+// intmat oTarget = identityIntmat(nvars(basering));
+
+// def rTarget = groebnerWalk(I,oTarget);
+
+// setring rTarget;
+// basering;
+// G;
+
+
+// actual hard example:
+int n=7;
+
+ring r = 32003,x(0..6),dp;
+ideal I = 15277*x(0)*x(1)-10802*x(0)*x(2)-2500*x(1)^2-13435*x(1)*x(2)+6438*x(1)*x(3)-7932*x(1)*x(4)+1985*x(1)*x(6)+5135*x(3)*x(5)+2142*x(4)*x(5),
+  6868*x(0)*x(1)-11548*x(0)*x(4)-11539*x(1)*x(4)-4087*x(1)*x(6)+1012*x(2)*x(3)+1344*x(2)*x(5)-2130*x(3)^2+14776*x(3)*x(6),
+  -14803*x(0)*x(3)-12747*x(1)*x(4)+11839*x(2)^2+5964*x(5)^2;
+
+intmat oStart[n][n];
+intmat oTarget[n][n];
+for (int i=1; i<=n; i++)
+{
+  oStart[1,i] = 1;
+  oTarget[i,i] = 1;
+}
+for (int i=2; i<=n; i++)
+{
+  oStart[i,n-i+2] = -1;
+}
+"oStart:";
+oStart;
+"oTarget:";
+oTarget;
+
+def rTarget = straightLineGroebnerWalk(I,oStart,oTarget);
+
+"============ Result =============";
+setring rTarget;
+string(lead(G));
+// string(lead(groebner(G)));
+string(lead(groebner(imap(r,I))));
