@@ -4,7 +4,7 @@ category="Commutative Algebra";
 info="
 LIBRARY:  groebnerWalk.lib   Groebner Walk algorithms
 AUTHORS:  Yue Ren,           email: yue.ren@swansea.ac.uk
-          Jack Rhys-Burgess  email: 906545@Swansea.ac.uk
+          Jack Rhys-Burgess  email: jackrhysburgess@googlemail.com
 
 PROCEDURES:
        fullSpace(n);       cone, the ambient space of dimension n
